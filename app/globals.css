@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html { scroll-behavior: smooth; }
+body { background: #fff; color: #111; font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif; }
+
+/* Improve focus visibility for keyboard users */
+:focus-visible {
+  outline: 2px solid #1F4D3A;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Prose styles for blog posts */
+.prose-ecova {
+  @apply text-gray-700 leading-[1.85] text-base;
+}
+.prose-ecova h2 { @apply font-serif text-2xl md:text-3xl font-extrabold text-charcoal mt-10 mb-4; }
+.prose-ecova h3 { @apply font-serif text-xl font-bold text-charcoal mt-8 mb-3; }
+.prose-ecova p  { @apply my-4; }
+.prose-ecova ul { @apply my-4 pl-6 list-disc; }
+.prose-ecova ol { @apply my-4 pl-6 list-decimal; }
+.prose-ecova li { @apply my-2; }
+.prose-ecova a  { @apply text-green underline underline-offset-2 hover:no-underline; }
+.prose-ecova blockquote { @apply border-l-4 border-mint pl-4 italic text-gray-600 my-6; }
+.prose-ecova strong { @apply text-charcoal; }
+.prose-ecova code { @apply bg-gray-100 px-1.5 py-0.5 rounded text-sm; }
