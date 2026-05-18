@@ -14,6 +14,7 @@ import FinalCTA from "./FinalCTA";
 import Footer from "./Footer";
 import StickyWhatsapp from "./StickyWhatsapp";
 import QuoteModal from "./QuoteModal";
+import MobileBookingBar from "./MobileBookingBar";
 import { faqs } from "@/content/site";
 
 export default function HomeClient() {
@@ -37,6 +38,7 @@ export default function HomeClient() {
       </main>
       <Footer />
       <StickyWhatsapp />
+      <MobileBookingBar onBookClick={openModal} />
       {open && <QuoteModal onClose={() => setOpen(false)} />}
     </>
   );

@@ -1,22 +1,99 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import {
-  estimatePrice,
-  formatGBP,
-  SERVICE_LABELS,
-  SIZE_LABELS,
-  SERVICE_KEYS,
-  SIZE_KEYS,
-  type ServiceKey,
-  type SizeKey,
+  estimatePrice, formatGBP,
+  SERVICE_KEYS, SERVICE_LABELS,
+  ADDON_KEYS, ADDON_LABELS, ADDON_PRICES,
+  FREQUENCY_KEYS, FREQUENCY_LABELS, FREQUENCY_DISCOUNT,
+  bedroomsToSize,
+  type ServiceKey, type AddonKey, type FrequencyKey,
 } from "@/lib/pricing";
 
-const SLOTS: { id: string; label: string }[] = [
-  { id: "morning",   label: "Morning (8–12)" },
-  { id: "afternoon", label: "Afternoon (12–4)" },
-  { id: "evening",   label: "Evening (4–8)" },
-  { id: "flexible",  label: "Flexible" },
+// ─── constants ────────────────────────────────────────────────────────────────
+
+const SLOTS = [
+  { id: "morning",   label: "Morning",   sub: "8am – 12pm" },
+  { id: "afternoon", label: "Afternoon", sub: "12pm – 4pm" },
+  { id: "evening",   label: "Evening",   sub: "4pm – 8pm"  },
+  { id: "flexible",  label: "Flexible",  sub: "Any time"   },
 ];
+
+const BEDROOM_OPTS = [
+  { value: 0, label: "Studio" },
+  { value: 1, label: "1 Bed"  },
+  { value: 2, label: "2 Bed"  },
+  { value: 3, label: "3 Bed"  },
+  { value: 4, label: "4 Bed"  },
+  { value: 5, label: "5+ Bed" },
+];
+
+const STEP_TITLES = [
+  "What needs cleaning?",
+  "Your property",
+  "When works for you?",
+  "Where are you based?",
+  "Your contact details",
+];
+
+const STEP_SUBS = [
+  "We'll show you a price before asking for anything.",
+  "Size, add-ons, and how often you need us.",
+  "Pick a date and time — we'll confirm within the hour.",
+  "So we can check availability in your area.",
+  "We'll text and email your confirmation right away.",
+];
+
+// ─── types ────────────────────────────────────────────────────────────────────
+
+interface BookingState {
+  service:   ServiceKey | "";
+  bedrooms:  number;
+  bathrooms: number;
+  addons:    AddonKey[];
+  frequency: FrequencyKey;
+  date:      string;
+  slot:      string;
+  urgent:    boolean;
+  postcode:  string;
+  address:   string;
+  notes:     string;
+  name:      string;
+  email:     string;
+  phone:     string;
+}
+
+const INITIAL: BookingState = {
+  service:   "",
+  bedrooms:  1,
+  bathrooms: 1,
+  addons:    [],
+  frequency: "once",
+  date:      "",
+  slot:      "flexible",
+  urgent:    false,
+  postcode:  "",
+  address:   "",
+  notes:     "",
+  name:      "",
+  email:     "",
+  phone:     "",
+};
+
+type Step = 1 | 2 | 3 | 4 | 5;
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
+const pill = (active: boolean, extra = "") =>
+  `border-2 rounded-xl text-sm font-semibold cursor-pointer transition-all ${extra} ${
+    active
+      ? "border-green bg-mint-bg text-green-deep"
+      : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+  }`;
+
+const inputCls =
+  "w-full px-4 py-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-green transition-colors text-charcoal placeholder:text-gray-400";
+
+// ─── component ────────────────────────────────────────────────────────────────
 
 export default function QuoteModal({
   onClose,
@@ -25,21 +102,16 @@ export default function QuoteModal({
   onClose: () => void;
   initialService?: ServiceKey;
 }) {
-  const [step, setStep] = useState<1 | 2 | 3>(initialService ? 2 : 1);
-  const [svc, setSvc] = useState<ServiceKey | "">(initialService ?? "");
-  const [sz, setSz] = useState<SizeKey | "">("");
-  const [date, setDate] = useState("");
-  const [slot, setSlot] = useState<string>("flexible");
-  const [postcode, setPostcode] = useState("");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [notes, setNotes] = useState("");
+  const [step, setStep] = useState<Step>(initialService ? 2 : 1);
+  const [form, patch] = useReducer(
+    (s: BookingState, u: Partial<BookingState>) => ({ ...s, ...u }),
+    { ...INITIAL, service: initialService ?? "" },
+  );
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<{ ref: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Body scroll lock + Escape close
+  // Lock body scroll + Escape to close
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -52,11 +124,20 @@ export default function QuoteModal({
   }, [onClose]);
 
   const today = useMemo(() => new Date().toISOString().split("T")[0], []);
-  const est = estimatePrice(svc, sz);
+  const size  = bedroomsToSize(form.bedrooms);
+  const est   = estimatePrice(form.service, size, form.addons, form.frequency, form.urgent);
 
-  const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  const validPhone = phone.replace(/\D/g, "").length >= 10;
-  const canSubmit = name.trim().length > 1 && validEmail && validPhone && !!svc && !!sz && !submitting;
+  const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email);
+  const validPhone = form.phone.replace(/\D/g, "").length >= 10;
+  const canSubmit  = form.name.trim().length > 1 && validEmail && validPhone && !!form.service && !submitting;
+
+  function toggleAddon(k: AddonKey) {
+    patch({
+      addons: form.addons.includes(k)
+        ? form.addons.filter((a) => a !== k)
+        : [...form.addons, k],
+    });
+  }
 
   async function handleSubmit() {
     if (!canSubmit) return;
@@ -64,18 +145,22 @@ export default function QuoteModal({
     setSubmitting(true);
     try {
       const r = await fetch("/api/bookings", {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          service: svc,
-          property_size: sz,
-          preferred_date: date || null,
-          preferred_slot: slot || null,
-          customer_name: name.trim(),
-          customer_email: email.trim(),
-          customer_phone: phone.trim(),
-          postcode: postcode.trim() || null,
-          notes: notes.trim() || null,
+          service:        form.service,
+          bedrooms:       form.bedrooms,
+          addons:         form.addons,
+          frequency:      form.frequency,
+          urgent:         form.urgent,
+          preferred_date: form.date      || null,
+          preferred_slot: form.slot      || null,
+          customer_name:  form.name.trim(),
+          customer_email: form.email.trim(),
+          customer_phone: form.phone.trim(),
+          postcode:       form.postcode.trim() || null,
+          address:        form.address.trim()  || null,
+          notes:          form.notes.trim()    || null,
         }),
       });
       const data = await r.json();
@@ -88,184 +173,527 @@ export default function QuoteModal({
     }
   }
 
-  const pillCls = (active: boolean) =>
-    `px-4 py-2.5 rounded-lg text-sm font-${active ? "bold" : "normal"} cursor-pointer transition-all border ${
-      active
-        ? "border-green bg-mint-bg text-green"
-        : "border-gray-200 bg-white text-gray-700 hover:border-green/40"
-    }`;
+  // ─── shared price strip ──────────────────────────────────────────────────
 
-  const inputCls = "w-full px-4 py-3 border border-gray-200 rounded-lg text-sm outline-none focus:border-green transition-colors mb-2 text-charcoal";
+  const PriceStrip = est !== null && !submitted && step > 1 ? (
+    <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-gray-100">
+      <span className="text-xs text-gray-400">Estimated</span>
+      <span className="font-serif font-black text-green text-lg leading-none">{formatGBP(est)}</span>
+      {form.frequency !== "once" && (
+        <span className="text-[10px] font-bold text-green bg-mint-bg px-2 py-0.5 rounded-full">
+          −{Math.round(FREQUENCY_DISCOUNT[form.frequency] * 100)}% recurring
+        </span>
+      )}
+      {form.urgent && (
+        <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+          Priority +£30
+        </span>
+      )}
+    </div>
+  ) : null;
+
+  // ─── back / forward buttons ──────────────────────────────────────────────
+
+  const BackBtn = ({ to }: { to: Step }) => (
+    <button
+      type="button"
+      onClick={() => setStep(to)}
+      className="px-5 py-3.5 border-2 border-gray-200 rounded-xl text-charcoal font-bold hover:bg-gray-50 transition text-lg"
+    >
+      ←
+    </button>
+  );
+
+  const NextBtn = ({
+    to,
+    disabled = false,
+    label = "Continue →",
+  }: {
+    to: Step;
+    disabled?: boolean;
+    label?: string;
+  }) => (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => !disabled && setStep(to)}
+      className={`flex-1 rounded-xl py-3.5 text-base font-bold transition ${
+        disabled
+          ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+          : "bg-green text-white hover:bg-green-deep cursor-pointer"
+      }`}
+    >
+      {label}
+    </button>
+  );
+
+  // ─── render ──────────────────────────────────────────────────────────────
 
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-labelledby="quote-modal-title"
+      aria-labelledby="qm-title"
       onClick={onClose}
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-2xl p-6 md:p-9 w-full max-w-[480px] max-h-[90vh] overflow-y-auto animate-fade-up"
+        className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-[500px] max-h-[92vh] overflow-y-auto animate-fade-up shadow-2xl"
       >
-        {/* Header */}
-        <div className="flex justify-between items-start mb-7">
-          <div>
-            <div className="text-[11px] font-bold tracking-[3px] text-gray-500 uppercase mb-2">
-              Step {submitted ? "✓" : step} of 3
-            </div>
-            <div className="w-[140px] md:w-[200px] h-[3px] bg-gray-200 rounded">
-              <div
-                className="h-full bg-green rounded transition-all duration-300"
-                style={{ width: submitted ? "100%" : `${(step / 3) * 100}%` }}
-              />
-            </div>
-          </div>
-          <button
-            type="button"
-            aria-label="Close quote dialog"
-            onClick={onClose}
-            className="text-gray-500 text-2xl leading-none hover:text-charcoal"
-          >
-            ×
-          </button>
-        </div>
-
-        {/* SUCCESS */}
-        {submitted ? (
-          <div className="text-center py-2">
-            <div aria-hidden className="w-16 h-16 rounded-full bg-mint-bg border-2 border-mint flex items-center justify-center text-3xl text-green mx-auto mb-5">✓</div>
-            <h2 id="quote-modal-title" className="font-serif font-extrabold text-2xl text-charcoal mb-2">Booking received</h2>
-            <p className="text-gray-700 mb-1">Your reference is <strong className="text-green">{submitted.ref}</strong>.</p>
-            <p className="text-gray-500 text-sm leading-relaxed mb-6">
-              We'll confirm by text and email within the hour. Thanks, {name.split(" ")[0]}.
-            </p>
-            <button type="button" onClick={onClose} className="bg-green text-white font-bold py-3 px-7 rounded-lg hover:bg-green-deep transition">
-              Close
+        {/* ── sticky header ── */}
+        <div className="sticky top-0 bg-white border-b border-gray-100 px-6 pt-5 pb-4 z-10">
+          <div className="flex justify-between items-center mb-3">
+            {!submitted ? (
+              <div className="flex gap-1.5 items-center">
+                {([1, 2, 3, 4, 5] as Step[]).map((n) => (
+                  <div
+                    key={n}
+                    className={`h-1.5 rounded-full transition-all duration-300 ${
+                      n <= step ? "bg-green w-7" : "bg-gray-200 w-3"
+                    }`}
+                  />
+                ))}
+                <span className="text-xs text-gray-400 ml-1">
+                  {step}/5
+                </span>
+              </div>
+            ) : (
+              <div className="text-sm font-bold text-green">✓ Booking confirmed</div>
+            )}
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 text-xl leading-none"
+            >
+              ×
             </button>
           </div>
-        ) : (
-          <>
-            {/* STEP 1: Service */}
-            {step === 1 && (
-              <>
-                <h2 id="quote-modal-title" className="font-serif font-extrabold text-2xl text-charcoal mb-1.5">What needs cleaning?</h2>
-                <p className="text-gray-500 text-sm mb-6 leading-relaxed">
-                  We'll show you a price on the next step — before you share any contact details.
-                </p>
-                <div className="grid sm:grid-cols-2 gap-2.5 mb-6">
-                  {SERVICE_KEYS.map((k) => (
-                    <button type="button" key={k} className={pillCls(svc === k)} onClick={() => setSvc(k)}>
-                      {SERVICE_LABELS[k]}
-                    </button>
-                  ))}
+
+          {!submitted && (
+            <div>
+              <h2 id="qm-title" className="font-serif font-black text-charcoal text-xl leading-tight">
+                {STEP_TITLES[step - 1]}
+              </h2>
+              <p className="text-gray-400 text-xs mt-0.5">{STEP_SUBS[step - 1]}</p>
+              {PriceStrip}
+            </div>
+          )}
+        </div>
+
+        {/* ── body ── */}
+        <div className="px-6 py-5">
+
+          {/* ──────── SUCCESS ──────── */}
+          {submitted && (
+            <div className="text-center py-4">
+              <div className="w-16 h-16 rounded-full bg-mint-bg border-2 border-mint flex items-center justify-center text-3xl text-green mx-auto mb-4">
+                ✓
+              </div>
+              <h2 id="qm-title" className="font-serif font-extrabold text-2xl text-charcoal mb-1">
+                Booking received
+              </h2>
+              <p className="text-gray-600 mb-0.5">
+                Reference: <strong className="text-green">{submitted.ref}</strong>
+              </p>
+              <p className="text-gray-400 text-sm mb-6">
+                We'll confirm by text and email within the hour, {form.name.split(" ")[0]}.
+              </p>
+
+              {est !== null && (
+                <div className="bg-gray-50 rounded-xl p-4 mb-6 text-left text-sm">
+                  <div className="flex justify-between text-gray-500 mb-1">
+                    <span>{SERVICE_LABELS[form.service as ServiceKey]}</span>
+                    <span>{BEDROOM_OPTS.find((o) => o.value === form.bedrooms)?.label}</span>
+                  </div>
+                  {form.addons.length > 0 && (
+                    <p className="text-gray-400 text-xs mb-1">
+                      + {form.addons.map((k) => ADDON_LABELS[k]).join(", ")}
+                    </p>
+                  )}
+                  {form.date && (
+                    <p className="text-gray-400 text-xs">
+                      {form.date} · {SLOTS.find((s) => s.id === form.slot)?.label}
+                    </p>
+                  )}
+                  <div className="flex justify-between border-t border-gray-200 mt-3 pt-3 font-bold">
+                    <span className="text-gray-600">Total estimate</span>
+                    <span className="text-green font-serif font-black text-lg">{formatGBP(est)}</span>
+                  </div>
                 </div>
+              )}
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-full bg-green text-white font-bold py-3.5 rounded-xl hover:bg-green-deep transition"
+              >
+                Done
+              </button>
+            </div>
+          )}
+
+          {/* ──────── STEP 1: Service ──────── */}
+          {!submitted && step === 1 && (
+            <div>
+              <div className="grid grid-cols-2 gap-2 mb-6">
+                {SERVICE_KEYS.map((k) => (
+                  <button
+                    type="button"
+                    key={k}
+                    onClick={() => patch({ service: k })}
+                    className={pill(form.service === k, "py-4 px-4 text-left")}
+                  >
+                    {SERVICE_LABELS[k]}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                disabled={!form.service}
+                onClick={() => form.service && setStep(2)}
+                className={`w-full rounded-xl py-4 text-base font-bold transition ${
+                  form.service
+                    ? "bg-green text-white hover:bg-green-deep"
+                    : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                }`}
+              >
+                Continue →
+              </button>
+              <p className="text-center text-xs text-gray-400 mt-3">
+                No payment now. Price shown instantly — before we ask for your details.
+              </p>
+            </div>
+          )}
+
+          {/* ──────── STEP 2: Property ──────── */}
+          {!submitted && step === 2 && (
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                Bedrooms
+              </p>
+              <div className="flex flex-wrap gap-2 mb-5">
+                {BEDROOM_OPTS.map((o) => (
+                  <button
+                    type="button"
+                    key={o.value}
+                    onClick={() => patch({ bedrooms: o.value })}
+                    className={pill(form.bedrooms === o.value, "px-4 py-2")}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                Bathrooms
+              </p>
+              <div className="flex gap-2 mb-6">
+                {[1, 2, 3].map((n) => (
+                  <button
+                    type="button"
+                    key={n}
+                    onClick={() => patch({ bathrooms: n })}
+                    className={pill(form.bathrooms === n, "px-5 py-2")}
+                  >
+                    {n === 3 ? "3+" : n}
+                  </button>
+                ))}
+              </div>
+
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                Add-ons{" "}
+                <span className="font-normal normal-case text-gray-300">(optional)</span>
+              </p>
+              <div className="grid grid-cols-2 gap-2 mb-6">
+                {ADDON_KEYS.map((k) => {
+                  const active = form.addons.includes(k);
+                  return (
+                    <button
+                      type="button"
+                      key={k}
+                      onClick={() => toggleAddon(k)}
+                      className={`flex items-center justify-between px-3.5 py-3 rounded-xl border-2 transition ${
+                        active
+                          ? "border-green bg-mint-bg"
+                          : "border-gray-200 hover:border-gray-300"
+                      }`}
+                    >
+                      <span className={`text-sm font-semibold ${active ? "text-green-deep" : "text-gray-700"}`}>
+                        {ADDON_LABELS[k]}
+                      </span>
+                      <span className={`text-xs font-bold ml-1 flex-shrink-0 ${active ? "text-green" : "text-gray-300"}`}>
+                        +£{ADDON_PRICES[k]}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {form.service === "regular" && (
+                <>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                    Frequency
+                  </p>
+                  <div className="flex flex-wrap gap-2 mb-6">
+                    {FREQUENCY_KEYS.map((k) => (
+                      <button
+                        type="button"
+                        key={k}
+                        onClick={() => patch({ frequency: k })}
+                        className={pill(form.frequency === k, "px-4 py-2")}
+                      >
+                        {FREQUENCY_LABELS[k]}
+                        {FREQUENCY_DISCOUNT[k] > 0 && (
+                          <span className="ml-1.5 text-[10px] font-bold text-green">
+                            −{Math.round(FREQUENCY_DISCOUNT[k] * 100)}%
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <div className="flex gap-2.5">
+                <BackBtn to={1} />
+                <NextBtn to={3} />
+              </div>
+            </div>
+          )}
+
+          {/* ──────── STEP 3: Schedule ──────── */}
+          {!submitted && step === 3 && (
+            <div>
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                Preferred date
+              </label>
+              <input
+                type="date"
+                min={today}
+                className={inputCls + " mb-5"}
+                value={form.date}
+                onChange={(e) => patch({ date: e.target.value })}
+              />
+
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                Time preference
+              </p>
+              <div className="grid grid-cols-2 gap-2 mb-5">
+                {SLOTS.map((s) => (
+                  <button
+                    type="button"
+                    key={s.id}
+                    onClick={() => patch({ slot: s.id })}
+                    className={`py-3 px-4 rounded-xl border-2 text-left transition ${
+                      form.slot === s.id
+                        ? "border-green bg-mint-bg"
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <div className={`text-sm font-semibold ${form.slot === s.id ? "text-green-deep" : "text-charcoal"}`}>
+                      {s.label}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-0.5">{s.sub}</div>
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => patch({ urgent: !form.urgent })}
+                className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border-2 transition mb-6 ${
+                  form.urgent ? "border-amber-400 bg-amber-50" : "border-gray-200 hover:border-gray-300"
+                }`}
+              >
+                <div className="text-left">
+                  <div className={`text-sm font-bold ${form.urgent ? "text-amber-700" : "text-charcoal"}`}>
+                    Same / next day booking
+                  </div>
+                  <div className="text-xs text-gray-400 mt-0.5">Priority scheduling — +£30</div>
+                </div>
+                <div
+                  className={`w-10 h-6 rounded-full transition-colors flex-shrink-0 flex items-center px-1 ml-3 ${
+                    form.urgent ? "bg-amber-400" : "bg-gray-200"
+                  }`}
+                >
+                  <div
+                    className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                      form.urgent ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </div>
+              </button>
+
+              <div className="flex gap-2.5">
+                <BackBtn to={2} />
+                <NextBtn to={4} />
+              </div>
+            </div>
+          )}
+
+          {/* ──────── STEP 4: Location ──────── */}
+          {!submitted && step === 4 && (
+            <div>
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                Postcode
+              </label>
+              <input
+                inputMode="text"
+                autoComplete="postal-code"
+                className={inputCls + " mb-4"}
+                placeholder="e.g. N3 1AB"
+                value={form.postcode}
+                onChange={(e) => patch({ postcode: e.target.value })}
+              />
+
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                Full address{" "}
+                <span className="font-normal normal-case text-gray-300">(optional)</span>
+              </label>
+              <input
+                autoComplete="street-address"
+                className={inputCls + " mb-4"}
+                placeholder="e.g. 12 Maple Road, Finchley"
+                value={form.address}
+                onChange={(e) => patch({ address: e.target.value })}
+              />
+
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                Notes{" "}
+                <span className="font-normal normal-case text-gray-300">(optional)</span>
+              </label>
+              <textarea
+                rows={3}
+                className={inputCls + " resize-none mb-6"}
+                placeholder="Entry instructions, pets, anything we should know…"
+                value={form.notes}
+                onChange={(e) => patch({ notes: e.target.value })}
+              />
+
+              <div className="flex gap-2.5">
+                <BackBtn to={3} />
+                <NextBtn to={5} />
+              </div>
+            </div>
+          )}
+
+          {/* ──────── STEP 5: Contact + Confirm ──────── */}
+          {!submitted && step === 5 && (
+            <div>
+              {/* Summary card */}
+              {est !== null && (
+                <div className="bg-mint-bg border border-mint rounded-xl p-4 mb-5">
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="text-sm font-bold text-green-deep">Your booking</span>
+                    <span className="font-serif font-black text-green text-2xl leading-none">
+                      {formatGBP(est)}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-500 space-y-0.5">
+                    <div className="flex justify-between">
+                      <span>{SERVICE_LABELS[form.service as ServiceKey]}</span>
+                      <span>{BEDROOM_OPTS.find((o) => o.value === form.bedrooms)?.label}</span>
+                    </div>
+                    {form.addons.length > 0 && (
+                      <p className="text-gray-400">+ {form.addons.map((k) => ADDON_LABELS[k]).join(", ")}</p>
+                    )}
+                    {form.date && (
+                      <p className="text-gray-400">
+                        {form.date} · {SLOTS.find((s) => s.id === form.slot)?.label}
+                      </p>
+                    )}
+                    {form.urgent && (
+                      <p className="text-amber-600 font-semibold">Priority booking +£30</p>
+                    )}
+                    {form.frequency !== "once" && (
+                      <p className="text-green font-semibold">
+                        {FREQUENCY_LABELS[form.frequency]} · −{Math.round(FREQUENCY_DISCOUNT[form.frequency] * 100)}% off
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
+                Full name
+              </label>
+              <input
+                autoComplete="name"
+                className={inputCls + " mb-3"}
+                placeholder="Your name"
+                value={form.name}
+                onChange={(e) => patch({ name: e.target.value })}
+              />
+
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
+                Email
+              </label>
+              <input
+                autoComplete="email"
+                type="email"
+                className={inputCls + " mb-1"}
+                placeholder="your@email.com"
+                value={form.email}
+                onChange={(e) => patch({ email: e.target.value })}
+              />
+              {form.email && !validEmail && (
+                <p className="text-xs text-red-600 mb-2">Please enter a valid email address.</p>
+              )}
+              {(!form.email || validEmail) && <div className="mb-3" />}
+
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
+                Mobile number
+              </label>
+              <input
+                autoComplete="tel"
+                type="tel"
+                className={inputCls + " mb-1"}
+                placeholder="+44 7700 900000"
+                value={form.phone}
+                onChange={(e) => patch({ phone: e.target.value })}
+              />
+              {form.phone && !validPhone && (
+                <p className="text-xs text-red-600 mb-3">Please enter a valid UK mobile number.</p>
+              )}
+              {(!form.phone || validPhone) && <div className="mb-4" />}
+
+              {error && (
+                <div className="text-sm text-red-700 bg-red-50 rounded-xl px-4 py-3 mb-4">
+                  {error}
+                </div>
+              )}
+
+              <div className="flex gap-2.5">
+                <BackBtn to={4} />
                 <button
                   type="button"
-                  disabled={!svc}
-                  onClick={() => svc && setStep(2)}
-                  className={`w-full rounded-lg py-3.5 text-base font-bold ${
-                    svc ? "bg-green text-white hover:bg-green-deep cursor-pointer" : "bg-gray-300 text-white/70 cursor-not-allowed"
-                  } transition`}
+                  disabled={!canSubmit}
+                  onClick={handleSubmit}
+                  className={`flex-1 rounded-xl py-3.5 text-base font-bold transition ${
+                    canSubmit
+                      ? "bg-green text-white hover:bg-green-deep cursor-pointer"
+                      : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                  }`}
                 >
-                  Continue
+                  {submitting
+                    ? "Confirming…"
+                    : est
+                    ? `Confirm — ${formatGBP(est)}`
+                    : "Confirm Booking"}
                 </button>
-              </>
-            )}
+              </div>
 
-            {/* STEP 2: Size + Date + Postcode */}
-            {step === 2 && (
-              <>
-                <h2 id="quote-modal-title" className="font-serif font-extrabold text-2xl text-charcoal mb-1.5">Property size and date</h2>
-                <p className="text-gray-500 text-sm mb-5">Select your property size to see your price.</p>
-
-                <div className="flex flex-wrap gap-2 mb-5">
-                  {SIZE_KEYS.map((k) => (
-                    <button type="button" key={k} className={pillCls(sz === k)} onClick={() => setSz(k)}>
-                      {SIZE_LABELS[k]}
-                    </button>
-                  ))}
-                </div>
-
-                {est !== null && (
-                  <div className="bg-mint-bg border border-mint rounded-xl p-5 mb-5 text-center">
-                    <div className="text-[11px] font-bold tracking-widest text-green uppercase mb-1.5">Your estimated price</div>
-                    <div className="font-serif font-black text-green text-5xl leading-none">{formatGBP(est)}</div>
-                    <div className="text-xs text-gray-500 mt-1.5">No hidden charges. Final price confirmed at booking.</div>
-                  </div>
-                )}
-
-                <label htmlFor="q-date" className="block text-sm font-medium text-gray-700 mb-1">Preferred date</label>
-                <input id="q-date" type="date" min={today} className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} />
-
-                <label htmlFor="q-slot" className="block text-sm font-medium text-gray-700 mb-1 mt-2">Preferred slot</label>
-                <select id="q-slot" className={inputCls} value={slot} onChange={(e) => setSlot(e.target.value)}>
-                  {SLOTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-                </select>
-
-                <label htmlFor="q-postcode" className="block text-sm font-medium text-gray-700 mb-1 mt-2">Postcode <span className="text-gray-400">(optional)</span></label>
-                <input id="q-postcode" inputMode="text" autoComplete="postal-code" className={inputCls} placeholder="e.g. N3 1AB" value={postcode} onChange={(e) => setPostcode(e.target.value)} />
-
-                <div className="flex gap-2.5 mt-3">
-                  <button type="button" onClick={() => setStep(1)} className="px-6 py-3 border border-gray-200 rounded-lg text-charcoal font-bold hover:bg-gray-50">
-                    Back
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!sz}
-                    onClick={() => sz && setStep(3)}
-                    className={`flex-1 rounded-lg py-3 text-base font-bold ${
-                      sz ? "bg-green text-white hover:bg-green-deep cursor-pointer" : "bg-gray-300 text-white/70 cursor-not-allowed"
-                    } transition`}
-                  >
-                    Continue
-                  </button>
-                </div>
-              </>
-            )}
-
-            {/* STEP 3: Contact details */}
-            {step === 3 && (
-              <>
-                <h2 id="quote-modal-title" className="font-serif font-extrabold text-2xl text-charcoal mb-1.5">Almost done</h2>
-                <p className="text-gray-500 text-sm mb-4">We'll confirm your booking by text and email within the hour.</p>
-
-                {est !== null && (
-                  <div className="flex justify-between items-center bg-gray-50 rounded-lg px-4 py-3 mb-5">
-                    <span className="text-sm text-gray-500">Your price</span>
-                    <span className="font-serif font-black text-green text-2xl">{formatGBP(est)}</span>
-                  </div>
-                )}
-
-                <input autoComplete="name" placeholder="Full name" className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
-                <input autoComplete="email" type="email" placeholder="Email address" className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} />
-                {email && !validEmail && <div className="text-xs text-red-700 -mt-1 mb-2">Please enter a valid email.</div>}
-                <input autoComplete="tel" type="tel" placeholder="Mobile number" className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} />
-                {phone && !validPhone && <div className="text-xs text-red-700 -mt-1 mb-2">Please enter a valid UK mobile number.</div>}
-                <textarea placeholder="Anything we should know? (optional)" rows={3} className={inputCls + " resize-none"} value={notes} onChange={(e) => setNotes(e.target.value)} />
-
-                {error && <div className="text-sm text-red-700 mb-2">{error}</div>}
-
-                <div className="flex gap-2.5 mt-3">
-                  <button type="button" onClick={() => setStep(2)} className="px-6 py-3 border border-gray-200 rounded-lg text-charcoal font-bold hover:bg-gray-50">
-                    Back
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!canSubmit}
-                    onClick={handleSubmit}
-                    className={`flex-1 rounded-lg py-3 text-base font-bold ${
-                      canSubmit ? "bg-green text-white hover:bg-green-deep cursor-pointer" : "bg-gray-300 text-white/70 cursor-not-allowed"
-                    } transition`}
-                  >
-                    {submitting ? "Sending…" : "Confirm Booking"}
-                  </button>
-                </div>
-              </>
-            )}
-          </>
-        )}
+              <div className="flex items-center justify-center gap-5 mt-5 text-xs text-gray-300">
+                <span>🔒 Secure</span>
+                <span>No payment now</span>
+                <span>48-hr guarantee</span>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

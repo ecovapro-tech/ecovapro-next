@@ -1,9 +1,10 @@
 export const testimonials = [
-  { name: "Sophie R.", area: "Clapham", stars: 5, text: "I've used three cleaning companies this year. EcovaPro is the first time I actually had to check they'd been — the flat looked completely different." },
-  { name: "Marcus T.", area: "Islington", stars: 5, text: "End of tenancy clean. Got every penny of my deposit back. The landlord asked who we used. That says everything." },
-  { name: "Priya K.", area: "Canary Wharf", stars: 5, text: "Our office smells genuinely clean, not like chemicals. The team are invisible, efficient, and absolutely reliable." },
-  { name: "James W.", area: "Hackney", stars: 5, text: "Fortnightly cleans for eight months now. They remember exactly how I like things done. That level of consistency is rare." },
-  { name: "Amara O.", area: "Finchley", stars: 5, text: "I manage four Airbnb properties. EcovaPro have made my life measurably easier. Guests consistently mention the cleanliness." },
+  { name: "Sophie R.", area: "Clapham",       stars: 5, service: "Regular Cleaning",    text: "I've used three cleaning companies this year. EcovaPro is the first time I actually had to check they'd been — the flat looked completely different." },
+  { name: "Marcus T.", area: "Islington",      stars: 5, service: "End of Tenancy",       text: "End of tenancy clean. Got every penny of my deposit back. The landlord asked who we used. That says everything." },
+  { name: "Priya K.",  area: "Canary Wharf",   stars: 5, service: "Office Cleaning",      text: "Our office smells genuinely clean, not like chemicals. The team are invisible, efficient, and absolutely reliable." },
+  { name: "James W.",  area: "Hackney",        stars: 5, service: "Regular Cleaning",    text: "Fortnightly cleans for eight months now. They remember exactly how I like things done. That level of consistency is rare." },
+  { name: "Amara O.",  area: "Finchley",       stars: 5, service: "Airbnb & Short-Let",  text: "I manage four Airbnb properties. EcovaPro have made my life measurably easier. Guests consistently mention the cleanliness." },
+  { name: "Lena F.",   area: "Battersea",      stars: 5, service: "Deep Cleaning",       text: "We moved into a place that hadn't been touched in years. One visit later and it genuinely felt like a new home. Remarkable." },
 ];
 
 export const faqs = [
